@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Un loc mai sus</title>
+<meta name="description" content="Trasee pe jos, de la locul în care ești, cu exact câți pași îți trebuie ca să urci un loc în clasament.">
+<meta name="theme-color" content="#0e6a55">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+/* Layout: the map is the top of the phone screen, the goal and routes scroll under it; side by side on a laptop. */
+:root {
+  --bg: #f3f6f2;
+  --surface: #ffffff;
+  --ink: #14241e;
+  --muted: #526a60;
+  --line: #d3ded7;
+  --accent: #0e6a55;
+  --on-accent: #ffffff;
+  --warn: #8a5200;
+  --display: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+  --body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1916;
+    --surface: #17241f;
+    --ink: #e7efe9;
+    --muted: #9db0a7;
+    --line: #2b3b35;
+    --accent: #4cc5a6;
+    --on-accent: #06231b;
+    --warn: #e8b15e;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  display: grid;
+  grid-template-rows: minmax(220px, 44vh) minmax(0, 1fr);
+  grid-template-rows: minmax(220px, 44dvh) minmax(0, 1fr);
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.45 var(--body);
+}
+#map { min-height: 0; background: #dfe7e0; }
+#panel {
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-block: 16px calc(24px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+@media (min-width: 900px) {
+  body { grid-template-rows: none; grid-template-columns: 420px minmax(0, 1fr); }
+  #panel { order: -1; border-right: 1px solid var(--line); }
+}
+p { margin: 0; }
+.eyebrow { font-size: 13px; letter-spacing: .04em; color: var(--muted); }
+.big {
+  font-family: var(--display);
+  font-size: clamp(38px, 12vw, 52px);
+  line-height: 1.05;
+  text-wrap: balance;
+  font-variant-numeric: tabular-nums;
+}
+.big.small { font-size: clamp(28px, 8vw, 36px); }
+#goal { display: flex; flex-direction: column; gap: 4px; }
+.detail { color: var(--ink); max-width: 60ch; }
+.totals { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+.link {
+  appearance: none; border: 0; background: none; padding: 0;
+  color: var(--accent); font: inherit; text-decoration: underline; cursor: pointer;
+}
+#status { color: var(--muted); font-size: 14px; }
+#status:empty { display: none; }
+#status.warn { color: var(--warn); }
+#routes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+#routes:empty { display: none; }
+.route {
+  appearance: none; width: 100%; min-height: 56px; padding: 10px 12px;
+  display: grid; grid-template-columns: 14px minmax(0, 1fr); column-gap: 12px; align-items: center;
+  background: var(--surface); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 10px;
+  font: inherit; text-align: left; cursor: pointer;
+}
+.route[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.swatch { width: 14px; height: 14px; border-radius: 50%; }
+.route-main { display: flex; flex-wrap: wrap; gap: 0 10px; align-items: baseline; font-variant-numeric: tabular-nums; }
+.route-main strong { font-size: 18px; }
+.route-main span { color: var(--muted); font-size: 14px; }
+.route-note { grid-column: 2; color: var(--warn); font-size: 13px; }
+#routeActions { display: flex; flex-direction: column; gap: 8px; }
+#routeActions[hidden] { display: none; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; }
+.row > * { flex: 1 1 140px; min-width: 0; }
+.btn {
+  appearance: none; display: inline-flex; align-items: center; justify-content: center;
+  min-height: 46px; padding: 8px 14px; text-align: center; text-decoration: none;
+  background: var(--surface); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 10px;
+  font: inherit; font-weight: 600; cursor: pointer;
+}
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn[hidden] { display: none; }
+.btn:disabled { opacity: .55; cursor: default; }
+.hint { color: var(--muted); font-size: 13px; max-width: 60ch; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.sr-only:focus-visible + .btn, label.btn:focus-within { outline: 3px solid var(--accent); outline-offset: 2px; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+details { border-top: 1px solid var(--line); padding-top: 12px; }
+summary { cursor: pointer; font-weight: 600; min-height: 28px; }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 12px; }
+.field { display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: var(--muted); }
+.field input {
+  width: 100%; min-height: 44px; padding: 8px 10px;
+  background: var(--surface); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 8px;
+  font: 16px var(--body); font-variant-numeric: tabular-nums;
+}
+details .hint { margin-top: 10px; }
+dialog {
+  width: min(460px, calc(100vw - 32px)); max-height: 80vh; padding: 16px;
+  background: var(--surface); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 12px;
+}
+dialog::backdrop { background: rgba(10, 20, 16, .5); }
+dialog h2 { margin: 0 0 4px; font: 700 22px/1.2 var(--display); }
+#pickRows { list-style: none; margin: 12px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.pick {
+  appearance: none; width: 100%; min-height: 46px; padding: 8px 12px;
+  background: var(--bg); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 8px;
+  font: inherit; text-align: left; cursor: pointer;
+  overflow-wrap: anywhere; font-variant-numeric: tabular-nums;
+}
+.pick b { display: block; }
+.pick span { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<div id="map" aria-label="Harta traseelor"></div>
+
+<main id="panel">
+  <section id="goal" aria-live="polite">
+    <p class="eyebrow" id="goalLabel"></p>
+    <p class="big" id="goalBig"></p>
+    <p class="detail" id="goalDetail"></p>
+    <p class="totals" id="goalTotals"></p>
+  </section>
+
+  <p id="status" role="status"></p>
+  <ol id="routes" aria-label="Trasee"></ol>
+
+  <div id="routeActions" hidden>
+    <button id="follow" class="btn primary" type="button">Pornește pe traseu</button>
+    <a id="openMaps" class="btn" target="_blank" rel="noopener">Deschide în Google Maps</a>
+    <button id="gpx" class="btn" type="button">Descarcă GPX pentru ceas</button>
+    <p id="routeHint" class="hint"></p>
+  </div>
+
+  <div class="row">
+    <input id="shot" class="sr-only" type="file" accept="image/*">
+    <label id="shotLabel" class="btn" for="shot">Citește o captură</label>
+    <button id="more" class="btn" type="button">Alte trasee</button>
+    <button id="here" class="btn" type="button">Pleacă de unde sunt</button>
+    <button id="install" class="btn" type="button" hidden>Instalează aplicația</button>
+  </div>
+
+  <details id="settings">
+    <summary>Totaluri și reglaje</summary>
+    <div class="fields">
+      <label class="field">Pașii tăi
+        <input id="inMe" inputmode="numeric" autocomplete="off">
+      </label>
+      <label class="field">Pașii celui de deasupra
+        <input id="inNext" inputmode="numeric" autocomplete="off">
+      </label>
+      <label class="field">Rezervă (gol = automat)
+        <input id="inReserve" inputmode="numeric" autocomplete="off">
+      </label>
+      <label class="field">Pași pe kilometru
+        <input id="inStepsPerKm" inputmode="numeric" autocomplete="off">
+      </label>
+      <label class="field">Lungimea maximă a unei plimbări (km)
+        <input id="inMaxKm" inputmode="decimal" autocomplete="off">
+      </label>
+    </div>
+    <p class="hint">Pașii pe kilometru sunt la început o estimare. Ca să fie exacți, împarte pașii unei zile la kilometrii aceleiași zile, din Garmin Connect.</p>
+    <p class="hint">Rezerva automată este ritmul zilnic al celui de deasupra, calculat din capturile tale, și cel puțin 1.000 de pași.</p>
+    <p class="hint">Ține apăsat pe hartă ca să pleci din alt loc.</p>
+  </details>
+
+  <details>
+    <summary>Ce date pleacă de pe telefon</summary>
+    <p class="hint">Captura este citită pe telefon. Nu este trimisă nicăieri și nu este păstrată.</p>
+    <p class="hint">Pentru trasee, punctele traseului și locul de plecare ajung la serverul de rutare FOSSGIS, care le trece în jurnalele lui. Harta vine de la OpenStreetMap. Google Maps primește punctele doar când deschizi traseul acolo.</p>
+    <p class="hint">Totalurile și numele tău din clasament rămân doar în acest browser. Numele celorlalți nu sunt salvate.</p>
+  </details>
+</main>
+
+<dialog id="picker" aria-labelledby="pickTitle">
+  <h2 id="pickTitle">Care e rândul tău?</h2>
+  <p class="hint">Apasă o dată pe rândul tău. Data viitoare te recunosc singur.</p>
+  <ul id="pickRows"></ul>
+  <button id="pickCancel" class="btn" type="button">Renunță</button>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
